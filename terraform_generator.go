@@ -12,34 +12,55 @@ type TerraformResource struct {
 	Type       string
 	Name       string
 	Attributes map[string]interface{}
-	IsData     bool // true for data sources, false for resources
+	IsData     bool   // true for data sources, false for resources
+	ID         string // stored separately for import, not written to .tf files
 }
 
 // TerraformGenerator handles the generation of Terraform files
 type TerraformGenerator struct {
-	outputDir string
-	config    *Config
-	resources []TerraformResource
+	outputDir      string
+	config         *Config
+	resources      []TerraformResource
+	importCommands []ImportCommand
+}
+
+// ImportCommand represents a terraform import command to be executed
+type ImportCommand struct {
+	ResourceAddress string
+	ResourceID      string
 }
 
 // NewTerraformGenerator creates a new Terraform generator
 func NewTerraformGenerator(outputDir string, config *Config) *TerraformGenerator {
 	return &TerraformGenerator{
-		outputDir: outputDir,
-		config:    config,
-		resources: make([]TerraformResource, 0),
+		outputDir:      outputDir,
+		config:         config,
+		resources:      make([]TerraformResource, 0),
+		importCommands: make([]ImportCommand, 0),
 	}
 }
 
-// AddResource adds a resource to be generated
+// AddResource adds a resource to be generated and queues terraform import
 func (tg *TerraformGenerator) AddResource(resourceType, name string, attributes map[string]interface{}) {
+	// Extract and store the ID separately
+	var resourceID string
+	if id, exists := attributes["id"]; exists {
+		if idStr, ok := id.(string); ok {
+			resourceID = idStr
+		}
+	}
+
 	tg.resources = append(tg.resources, TerraformResource{
 		Type:       resourceType,
 		Name:       name,
 		Attributes: attributes,
 		IsData:     false,
+		ID:         resourceID,
 	})
 	fmt.Printf("  Added %s resource: %s\n", resourceType, name)
+
+	// Queue terraform import for this resource
+	tg.queueTerraformImport(resourceType, name, resourceID)
 }
 
 // AddDataSource adds a data source to be generated
@@ -137,6 +158,11 @@ func (tg *TerraformGenerator) writeResource(file *os.File, resource TerraformRes
 
 // writeAttribute writes an attribute to the file with proper formatting
 func (tg *TerraformGenerator) writeAttribute(file *os.File, key string, value interface{}, indent int) error {
+	// Skip read-only fields in Terraform
+	if key == "id" || key == "network_type" || key == "peers" {
+		return nil
+	}
+
 	indentStr := strings.Repeat("  ", indent)
 
 	switch v := value.(type) {
@@ -279,6 +305,114 @@ provider "netbird" {
 `, tg.config.ServerURL, tg.config.APIToken, tg.config.ServerURL)
 
 	fmt.Fprint(file, providerConfig)
+	return nil
+}
+
+// queueTerraformImport queues a terraform import command for later execution
+func (tg *TerraformGenerator) queueTerraformImport(resourceType, name string, resourceID string) {
+	if resourceID == "" {
+		fmt.Printf("  Warning: No ID found for %s resource %s, skipping terraform import\n", resourceType, name)
+		return
+	}
+
+	// Construct the terraform resource address
+	resourceAddress := fmt.Sprintf("netbird_%s.%s", resourceType, name)
+
+	// Queue the import command
+	tg.importCommands = append(tg.importCommands, ImportCommand{
+		ResourceAddress: resourceAddress,
+		ResourceID:      resourceID,
+	})
+
+	fmt.Printf("  Queued terraform import for %s\n", resourceAddress)
+}
+
+// RunTerraformImports executes all queued terraform import commands
+func (tg *TerraformGenerator) RunTerraformImports() error {
+	if len(tg.importCommands) == 0 {
+		fmt.Printf("No terraform imports to run\n")
+		return nil
+	}
+
+	fmt.Printf("\nRunning terraform imports...\n")
+
+	// First, run terraform init to ensure the provider is installed
+	fmt.Printf("Running terraform init...\n")
+	err := TerraformInit(tg.outputDir)
+	if err != nil {
+		return fmt.Errorf("terraform init failed: %w", err)
+	}
+
+	// Run each import command
+	successCount := 0
+	for _, cmd := range tg.importCommands {
+		fmt.Printf("Importing %s...\n", cmd.ResourceAddress)
+		err := TerraformImport(tg.outputDir, cmd.ResourceAddress, cmd.ResourceID)
+		if err != nil {
+			fmt.Printf("  Warning: terraform import failed for %s: %v\n", cmd.ResourceAddress, err)
+		} else {
+			fmt.Printf("  Successfully imported %s\n", cmd.ResourceAddress)
+			successCount++
+		}
+	}
+
+	fmt.Printf("\nTerraform import completed: %d/%d successful\n", successCount, len(tg.importCommands))
+	return nil
+}
+
+// GenerateImportScript creates a shell script with all terraform import commands
+func (tg *TerraformGenerator) GenerateImportScript() error {
+	// Generate import commands from resources if not already generated
+	if len(tg.importCommands) == 0 {
+		for _, resource := range tg.resources {
+			if !resource.IsData && resource.ID != "" {
+				resourceAddress := fmt.Sprintf("netbird_%s.%s", resource.Type, resource.Name)
+				tg.importCommands = append(tg.importCommands, ImportCommand{
+					ResourceAddress: resourceAddress,
+					ResourceID:      resource.ID,
+				})
+			}
+		}
+	}
+
+	if len(tg.importCommands) == 0 {
+		return nil
+	}
+
+	scriptPath := filepath.Join(tg.outputDir, "import.sh")
+	file, err := os.Create(scriptPath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Make the script executable
+	err = os.Chmod(scriptPath, 0755)
+	if err != nil {
+		return err
+	}
+
+	// Write script header
+	fmt.Fprintln(file, "#!/bin/bash")
+	fmt.Fprintln(file, "# NetBird Terraform Import Script")
+	fmt.Fprintln(file, "# Generated by NetBird Standalone Terraformer")
+	fmt.Fprintln(file, "")
+	fmt.Fprintln(file, "set -e")
+	fmt.Fprintln(file, "")
+	fmt.Fprintln(file, "echo \"Running terraform init...\"")
+	fmt.Fprintln(file, "terraform init")
+	fmt.Fprintln(file, "")
+	fmt.Fprintln(file, "echo \"Running terraform imports...\"")
+
+	// Write import commands
+	for _, cmd := range tg.importCommands {
+		fmt.Fprintf(file, "echo \"Importing %s...\"\n", cmd.ResourceAddress)
+		fmt.Fprintf(file, "terraform import \"%s\" \"%s\"\n", cmd.ResourceAddress, cmd.ResourceID)
+		fmt.Fprintln(file, "")
+	}
+
+	fmt.Fprintln(file, "echo \"All imports completed!\"")
+
 	return nil
 }
 

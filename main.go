@@ -52,11 +52,11 @@ func main() {
 		fmt.Printf("Warning: %v\n", err)
 	}
 
-	setupKeysGen := &SetupKeysGenerator{Service: service, Generator: generator}
-	err = setupKeysGen.InitResourcesWithGroupMapping(groupIDToResourceName)
-	if err != nil {
-		fmt.Printf("Warning: %v\n", err)
-	}
+	// setupKeysGen := &SetupKeysGenerator{Service: service, Generator: generator}
+	// err = setupKeysGen.InitResourcesWithGroupMapping(groupIDToResourceName)
+	// if err != nil {
+	// 	fmt.Printf("Warning: %v\n", err)
+	// }
 
 	policiesGen := &PoliciesGenerator{Service: service, Generator: generator}
 	err = policiesGen.InitResourcesWithGroupMapping(groupIDToResourceName)
@@ -88,16 +88,39 @@ func main() {
 		log.Fatalf("Failed to generate group mapping: %v", err)
 	}
 
+	// Generate import script
+	err = generator.GenerateImportScript()
+	if err != nil {
+		log.Fatalf("Failed to generate import script: %v", err)
+	}
+
+	// Run terraform imports if enabled
+	if config.AutoImport {
+		err = generator.RunTerraformImports()
+		if err != nil {
+			log.Fatalf("Failed to run terraform imports: %v", err)
+		}
+	} else {
+		fmt.Printf("\nAuto-import disabled. You can manually run terraform imports later.\n")
+	}
+
 	fmt.Printf("\nImport completed successfully!\n")
 	fmt.Printf("Generated files in: %s\n", outputDir)
 	fmt.Printf("\nFiles generated:\n")
 	fmt.Printf("  - Terraform configuration files (*.tf)\n")
 	fmt.Printf("  - group_mappings.json (for ID reference)\n")
+	fmt.Printf("  - import.sh (terraform import commands)\n")
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  1. cd %s\n", outputDir)
-	fmt.Printf("  2. terraform init\n")
-	fmt.Printf("  3. terraform plan\n")
-	fmt.Printf("  4. Review and modify the configuration as needed\n")
+	if config.AutoImport {
+		fmt.Printf("  2. terraform plan\n")
+		fmt.Printf("  3. Review and modify the configuration as needed\n")
+		fmt.Printf("\nNote: All resources have been automatically imported into Terraform state!\n")
+	} else {
+		fmt.Printf("  2. Run ./import.sh (or manually run terraform import commands)\n")
+		fmt.Printf("  3. terraform plan\n")
+		fmt.Printf("  4. Review and modify the configuration as needed\n")
+	}
 }
 
 func showHelp() {
@@ -111,6 +134,7 @@ func showHelp() {
 	fmt.Println("  NB_MANAGEMENT_URL     - NetBird Management API URL (optional)")
 	fmt.Println("                          Defaults to https://api.netbird.io")
 	fmt.Println("  DEBUG                 - Enable debug output (optional, set to 'true')")
+	fmt.Println("  AUTO_IMPORT           - Auto-run terraform import (optional, set to 'false' to disable)")
 	fmt.Println("")
 	fmt.Println("Examples:")
 	fmt.Println("  # Import to default 'generated' directory")

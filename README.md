@@ -156,7 +156,7 @@ The tool interacts with the following NetBird API endpoints:
 | `/api/users` | Fetch users | UsersGenerator |
 | `/api/policies` | Fetch policies | PoliciesGenerator |
 | `/api/routes` | Fetch routes | RoutesGenerator |
-| `/api/setup-keys` | Fetch setup keys | SetupKeysGenerator |
+<!-- | `/api/setup-keys` | Fetch setup keys | SetupKeysGenerator | -->
 
 ## 🐛 Troubleshooting
 

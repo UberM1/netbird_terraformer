@@ -1,6 +1,32 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"os/exec"
+)
+
+func TerraformInit(folderPath string) error {
+	cmd := exec.Command("terraform", "init")
+	cmd.Dir = folderPath
+
+	// Optional: pipe output to see it in real-time
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
+}
+
+func TerraformImport(folderPath string, resourceAddress string, resourceID string) error {
+	cmd := exec.Command("terraform", "import", resourceAddress, resourceID)
+	cmd.Dir = folderPath
+
+	// Optional: pipe output to see it in real-time
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
+}
 
 // ResourceGenerator interface for all resource generators
 type ResourceGenerator interface {
@@ -78,13 +104,12 @@ func (g *GroupsGenerator) generateGroupResource(group Group) string {
 
 	// Create the attributes map with only the required and optional fields
 	attributes := map[string]any{
+		"id":   group.ID,
 		"name": group.Name,
 	}
 
-	// Only add peers if there are any (this is an optional field)
-	if len(peerIDs) > 0 {
-		attributes["peers"] = peerIDs
-	}
+	// Skip peers field - it's managed automatically by NetBird
+	// Peers are assigned to groups automatically when they connect
 
 	// Extract resource IDs if there are any (this is an optional field)
 	if len(group.Resources) > 0 {
@@ -196,7 +221,9 @@ func (u *UsersGenerator) generateUserResource(user User, groupIDToResourceName m
 	}
 
 	// Build attributes according to the schema
-	attributes := map[string]any{}
+	attributes := map[string]any{
+		"id": user.ID,
+	}
 
 	// Required field for service users
 	if user.IsServiceUser {
@@ -328,10 +355,15 @@ func (p *PoliciesGenerator) generatePolicyResource(policy Policy, groupIDToResou
 	}
 
 	attributes := map[string]any{
-		"name":                  policy.Name,
-		"description":           policy.Description,
-		"enabled":               policy.Enabled,
-		"source_posture_checks": policy.SourcePostureChecks,
+		"id":          policy.ID,
+		"name":        policy.Name,
+		"description": policy.Description,
+		"enabled":     policy.Enabled,
+	}
+
+	// Only include source_posture_checks if not empty
+	if len(policy.SourcePostureChecks) > 0 {
+		attributes["source_posture_checks"] = policy.SourcePostureChecks
 	}
 
 	// Convert rules to detailed Terraform format
@@ -369,12 +401,12 @@ func (p *PoliciesGenerator) generatePolicyResource(policy Policy, groupIDToResou
 				sources := make([]string, 0)
 				for _, source := range rule.Sources {
 					if groupResourceName, exists := groupIDToResourceName[source.ID]; exists {
-						terraformRef := fmt.Sprintf("netbird_group.%s.name", groupResourceName)
+						terraformRef := fmt.Sprintf("netbird_group.%s.id", groupResourceName)
 						sources = append(sources, terraformRef)
 					} else {
 						// Fallback to sanitizing the name if not in mapping
 						groupResourceName := sanitizeResourceName(source.Name)
-						terraformRef := fmt.Sprintf("netbird_group.%s.name", groupResourceName)
+						terraformRef := fmt.Sprintf("netbird_group.%s.id", groupResourceName)
 						sources = append(sources, terraformRef)
 					}
 				}
@@ -386,12 +418,12 @@ func (p *PoliciesGenerator) generatePolicyResource(policy Policy, groupIDToResou
 				destinations := make([]string, 0)
 				for _, dest := range rule.Destinations {
 					if groupResourceName, exists := groupIDToResourceName[dest.ID]; exists {
-						terraformRef := fmt.Sprintf("netbird_group.%s.name", groupResourceName)
+						terraformRef := fmt.Sprintf("netbird_group.%s.id", groupResourceName)
 						destinations = append(destinations, terraformRef)
 					} else {
 						// Fallback to sanitizing the name if not in mapping
 						groupResourceName := sanitizeResourceName(dest.Name)
-						terraformRef := fmt.Sprintf("netbird_group.%s.name", groupResourceName)
+						terraformRef := fmt.Sprintf("netbird_group.%s.id", groupResourceName)
 						destinations = append(destinations, terraformRef)
 					}
 				}
@@ -426,17 +458,18 @@ func (p *PoliciesGenerator) generatePolicyResource(policy Policy, groupIDToResou
 
 // Route represents a NetBird route
 type Route struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
-	NetworkID   string `json:"network_id"`
-	Network     string `json:"network"`
-	// NetworkType string   `json:"network_type"`
-	Peer       string   `json:"peer"`
-	PeerGroups []string `json:"peer_groups"`
-	Metric     int      `json:"metric"`
-	Masquerade bool     `json:"masquerade"`
-	Enabled    bool     `json:"enabled"`
-	Groups     []string `json:"groups"`
+	ID          string   `json:"id"`
+	Description string   `json:"description"`
+	NetworkID   string   `json:"network_id"`
+	Network     string   `json:"network"`
+	NetworkType string   `json:"network_type"`
+	Peer        string   `json:"peer"`
+	PeerGroups  []string `json:"peer_groups"`
+	Metric      int      `json:"metric"`
+	Masquerade  bool     `json:"masquerade"`
+	Enabled     bool     `json:"enabled"`
+	Groups      []string `json:"groups"`
+	KeepRoute   bool     `json:"keep_route"`
 }
 
 // RoutesGenerator generates Terraform configuration for NetBird routes
@@ -492,7 +525,7 @@ func (r *RoutesGenerator) generateRouteResource(route Route, groupIDToResourceNa
 	groupRefs := make([]string, 0)
 	for _, groupID := range route.Groups {
 		if resourceName, exists := groupIDToResourceName[groupID]; exists {
-			terraformRef := fmt.Sprintf("netbird_group.%s.name", resourceName)
+			terraformRef := fmt.Sprintf("netbird_group.%s.id", resourceName)
 			groupRefs = append(groupRefs, terraformRef)
 		}
 	}
@@ -500,22 +533,23 @@ func (r *RoutesGenerator) generateRouteResource(route Route, groupIDToResourceNa
 	peerGroupRefs := make([]string, 0)
 	for _, groupID := range route.PeerGroups {
 		if resourceName, exists := groupIDToResourceName[groupID]; exists {
-			terraformRef := fmt.Sprintf("netbird_group.%s.name", resourceName)
+			terraformRef := fmt.Sprintf("netbird_group.%s.id", resourceName)
 			peerGroupRefs = append(peerGroupRefs, terraformRef)
 		}
 	}
 
 	attributes := map[string]any{
+		"id":          route.ID,
 		"description": route.Description,
 		"network_id":  route.NetworkID,
 		"network":     route.Network,
-		// "network_type": route.NetworkType,
 		"peer":        route.Peer,
 		"peer_groups": peerGroupRefs,
 		"metric":      route.Metric,
 		"masquerade":  route.Masquerade,
 		"enabled":     route.Enabled,
 		"groups":      groupRefs,
+		"keep_route":  route.KeepRoute,
 	}
 
 	if r.Generator != nil {
@@ -523,88 +557,89 @@ func (r *RoutesGenerator) generateRouteResource(route Route, groupIDToResourceNa
 	}
 }
 
-// SetupKey represents a NetBird setup key
-type SetupKey struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Type       string   `json:"type"`
-	CreatedAt  string   `json:"created_at"`
-	ExpiresAt  string   `json:"expires_at"`
-	Revoked    bool     `json:"revoked"`
-	UsedTimes  int      `json:"used_times"`
-	LastUsed   string   `json:"last_used"`
-	State      string   `json:"state"`
-	AutoGroups []string `json:"auto_groups"`
-	UsageLimit int      `json:"usage_limit"`
-	Ephemeral  bool     `json:"ephemeral"`
-}
+// // SetupKey represents a NetBird setup key
+// type SetupKey struct {
+// 	ID         string   `json:"id"`
+// 	Name       string   `json:"name"`
+// 	Type       string   `json:"type"`
+// 	CreatedAt  string   `json:"created_at"`
+// 	ExpiresAt  string   `json:"expires_at"`
+// 	Revoked    bool     `json:"revoked"`
+// 	UsedTimes  int      `json:"used_times"`
+// 	LastUsed   string   `json:"last_used"`
+// 	State      string   `json:"state"`
+// 	AutoGroups []string `json:"auto_groups"`
+// 	UsageLimit int      `json:"usage_limit"`
+// 	Ephemeral  bool     `json:"ephemeral"`
+// }
 
-// SetupKeysGenerator generates Terraform configuration for NetBird setup keys
-type SetupKeysGenerator struct {
-	Service   *NetBirdService
-	Generator *TerraformGenerator
-}
+// // SetupKeysGenerator generates Terraform configuration for NetBird setup keys
+// type SetupKeysGenerator struct {
+// 	Service   *NetBirdService
+// 	Generator *TerraformGenerator
+// }
 
-// InitResources initializes setup key resources
-func (s *SetupKeysGenerator) InitResources() error {
-	// This method is kept for compatibility but uses empty group mapping
-	return s.InitResourcesWithGroupMapping(make(map[string]string))
-}
+// // InitResources initializes setup key resources
+// func (s *SetupKeysGenerator) InitResources() error {
+// 	// This method is kept for compatibility but uses empty group mapping
+// 	return s.InitResourcesWithGroupMapping(make(map[string]string))
+// }
 
-// InitResourcesWithGroupMapping initializes setup key resources with group ID mapping
-func (s *SetupKeysGenerator) InitResourcesWithGroupMapping(groupIDToResourceName map[string]string) error {
-	fmt.Printf("Importing setup keys...\n")
+// // InitResourcesWithGroupMapping initializes setup key resources with group ID mapping
+// func (s *SetupKeysGenerator) InitResourcesWithGroupMapping(groupIDToResourceName map[string]string) error {
+// 	fmt.Printf("Importing setup keys...\n")
 
-	var setupKeys []SetupKey
-	err := s.Service.Get("/api/setup-keys", &setupKeys)
-	if err != nil {
-		return fmt.Errorf("failed to fetch setup keys: %w", err)
-	}
+// 	var setupKeys []SetupKey
+// 	err := s.Service.Get("/api/setup-keys", &setupKeys)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to fetch setup keys: %w", err)
+// 	}
 
-	for _, setupKey := range setupKeys {
-		s.generateSetupKeyResource(setupKey, groupIDToResourceName)
-	}
+// 	for _, setupKey := range setupKeys {
+// 		s.generateSetupKeyResource(setupKey, groupIDToResourceName)
+// 	}
 
-	fmt.Printf("Imported %d setup keys\n", len(setupKeys))
-	return nil
-}
+// 	fmt.Printf("Imported %d setup keys\n", len(setupKeys))
+// 	return nil
+// }
 
-// generateSetupKeyResource generates a Terraform resource for a setup key
-func (s *SetupKeysGenerator) generateSetupKeyResource(setupKey SetupKey, groupIDToResourceName map[string]string) {
-	resourceName := sanitizeResourceName(setupKey.Name)
-	if resourceName == "" {
-		resourceName = fmt.Sprintf("setup_key_%s", setupKey.ID)
-	}
+// // generateSetupKeyResource generates a Terraform resource for a setup key
+// func (s *SetupKeysGenerator) generateSetupKeyResource(setupKey SetupKey, groupIDToResourceName map[string]string) {
+// 	resourceName := sanitizeResourceName(setupKey.Name)
+// 	if resourceName == "" {
+// 		resourceName = fmt.Sprintf("setup_key_%s", setupKey.ID)
+// 	}
 
-	// Convert auto_groups IDs to Terraform references
-	autoGroupRefs := make([]string, 0)
-	if len(setupKey.AutoGroups) > 0 {
-		for _, groupID := range setupKey.AutoGroups {
-			if groupResourceName, exists := groupIDToResourceName[groupID]; exists {
-				terraformRef := fmt.Sprintf("netbird_group.%s.id", groupResourceName)
-				autoGroupRefs = append(autoGroupRefs, terraformRef)
-			} else {
-				// Fallback to hardcoded ID if group not found in mapping
-				autoGroupRefs = append(autoGroupRefs, groupID)
-			}
-		}
-	}
+// 	// Convert auto_groups IDs to Terraform references
+// 	autoGroupRefs := make([]string, 0)
+// 	if len(setupKey.AutoGroups) > 0 {
+// 		for _, groupID := range setupKey.AutoGroups {
+// 			if groupResourceName, exists := groupIDToResourceName[groupID]; exists {
+// 				terraformRef := fmt.Sprintf("netbird_group.%s.id", groupResourceName)
+// 				autoGroupRefs = append(autoGroupRefs, terraformRef)
+// 			} else {
+// 				// Fallback to hardcoded ID if group not found in mapping
+// 				autoGroupRefs = append(autoGroupRefs, groupID)
+// 			}
+// 		}
+// 	}
 
-	attributes := map[string]any{
-		"name":        setupKey.Name,
-		"type":        setupKey.Type,
-		"expires_at":  setupKey.ExpiresAt,
-		"revoked":     setupKey.Revoked,
-		"usage_limit": setupKey.UsageLimit,
-		"ephemeral":   setupKey.Ephemeral,
-	}
+// 	attributes := map[string]any{
+// 		"id":          setupKey.ID,
+// 		"name":        setupKey.Name,
+// 		"type":        setupKey.Type,
+// 		"expires_at":  setupKey.ExpiresAt,
+// 		"revoked":     setupKey.Revoked,
+// 		"usage_limit": setupKey.UsageLimit,
+// 		"ephemeral":   setupKey.Ephemeral,
+// 	}
 
-	// Only add auto_groups if there are any
-	if len(autoGroupRefs) > 0 {
-		attributes["auto_groups"] = autoGroupRefs
-	}
+// 	// Only add auto_groups if there are any
+// 	if len(autoGroupRefs) > 0 {
+// 		attributes["auto_groups"] = autoGroupRefs
+// 	}
 
-	if s.Generator != nil {
-		s.Generator.AddResource("setup_key", resourceName, attributes)
-	}
-}
+// 	if s.Generator != nil {
+// 		s.Generator.AddResource("setup_key", resourceName, attributes)
+// 	}
+// }

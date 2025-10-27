@@ -7,9 +7,10 @@ import (
 
 // Config holds the configuration for the NetBird importer
 type Config struct {
-	ServerURL string
-	APIToken  string
-	Debug     bool
+	ServerURL  string
+	APIToken   string
+	Debug      bool
+	AutoImport bool
 }
 
 // getConfig reads configuration from environment variables
@@ -31,10 +32,12 @@ func getConfig() *Config {
 	}
 
 	debug := os.Getenv("DEBUG") == "true"
+	autoImport := os.Getenv("AUTO_IMPORT") != "false" // Default to true, set AUTO_IMPORT=false to disable
 
 	return &Config{
-		ServerURL: serverURL,
-		APIToken:  apiToken,
-		Debug:     debug,
+		ServerURL:  serverURL,
+		APIToken:   apiToken,
+		Debug:      debug,
+		AutoImport: autoImport,
 	}
 }
