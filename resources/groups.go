@@ -91,18 +91,6 @@ func (h *GroupsHandler) generateGroupResource(group Group) string {
 		"name": group.Name,
 	}
 
-	if len(group.Resources) > 0 {
-		resourceIDs := make([]string, 0)
-		for _, resource := range group.Resources {
-			if resource.ID != "" {
-				resourceIDs = append(resourceIDs, resource.ID)
-			}
-		}
-		if len(resourceIDs) > 0 {
-			attributes["resources"] = resourceIDs
-		}
-	}
-
 	h.terraformWriter.AddResource("group", resourceName, attributes)
 	return resourceName
 }
