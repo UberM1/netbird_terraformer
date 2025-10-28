@@ -31,32 +31,22 @@ func main() {
 	fmt.Printf("Output Directory: %s\n", outputDir)
 	fmt.Printf("Starting import...\n\n")
 
-	// Initialize service and terraform generator
 	service := NewNetBirdService(config.ServerURL, config.APIToken, config.Debug)
 	generator := NewTerraformGenerator(outputDir, config)
 
-	// Step 1: Generate groups first to create the ID mapping
 	groupsGen := &GroupsGenerator{Service: service, Generator: generator}
 	err := groupsGen.InitResources()
 	if err != nil {
 		fmt.Printf("Warning: %v\n", err)
 	}
 
-	// Get the group ID to resource name mapping
 	groupIDToResourceName := groupsGen.GetGroupIDMapping()
 
-	// Step 2: Generate other resources that may reference groups
 	usersGen := &UsersGenerator{Service: service, Generator: generator}
 	err = usersGen.InitResourcesWithGroupMapping(groupIDToResourceName)
 	if err != nil {
 		fmt.Printf("Warning: %v\n", err)
 	}
-
-	// setupKeysGen := &SetupKeysGenerator{Service: service, Generator: generator}
-	// err = setupKeysGen.InitResourcesWithGroupMapping(groupIDToResourceName)
-	// if err != nil {
-	// 	fmt.Printf("Warning: %v\n", err)
-	// }
 
 	policiesGen := &PoliciesGenerator{Service: service, Generator: generator}
 	err = policiesGen.InitResourcesWithGroupMapping(groupIDToResourceName)
@@ -64,7 +54,6 @@ func main() {
 		fmt.Printf("Warning: %v\n", err)
 	}
 
-	// Step 3: Generate other resources (routes already use proper references)
 	remainingGenerators := []ResourceGenerator{
 		&RoutesGenerator{Service: service, Generator: generator},
 	}
@@ -76,25 +65,21 @@ func main() {
 		}
 	}
 
-	// Generate Terraform files
 	err = generator.GenerateFiles()
 	if err != nil {
 		log.Fatalf("Failed to generate Terraform files: %v", err)
 	}
 
-	// Generate group mapping file for reference
 	err = generator.GenerateGroupMapping()
 	if err != nil {
 		log.Fatalf("Failed to generate group mapping: %v", err)
 	}
 
-	// Generate import script
 	err = generator.GenerateImportScript()
 	if err != nil {
 		log.Fatalf("Failed to generate import script: %v", err)
 	}
 
-	// Run terraform imports if enabled
 	if config.AutoImport {
 		err = generator.RunTerraformImports()
 		if err != nil {
@@ -162,7 +147,6 @@ func showHelp() {
 func debugAuth() {
 	fmt.Println("=== NetBird Authentication Debug ===")
 
-	// Check environment variables
 	pat := os.Getenv("NB_PAT")
 	managementURL := os.Getenv("NB_MANAGEMENT_URL")
 
@@ -178,18 +162,15 @@ func debugAuth() {
 		fmt.Printf("INFO: Using custom management URL: %s\n", managementURL)
 	}
 
-	// Check token format
 	fmt.Printf("INFO: Token length: %d characters\n", len(pat))
 	if len(pat) >= 10 {
 		fmt.Printf("INFO: Token starts with: %s...\n", pat[:10])
 	}
 
-	// Test token format
 	if len(pat) < 20 {
 		fmt.Println("WARNING: Token seems unusually short")
 	}
 
-	// Create service and test
 	fmt.Println("\n=== Testing API Connection ===")
 	service := NewNetBirdService(managementURL, pat, true)
 

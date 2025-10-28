@@ -49,7 +49,7 @@ export DEBUG="true"  # Optional, for debugging API requests
 - **Management URL**: Defaults to `https://api.netbird.io` if not specified
 - **Output Directory**: Defaults to `generated/` if not specified
 
-## 🚀 Usage
+## Usage
 
 ### Basic Usage
 ```bash
@@ -70,7 +70,7 @@ export NB_MANAGEMENT_URL="https://netbird.monitorbit.xyz:33073"
 ./netbird-importer terraform-config
 ```
 
-## 📁 Generated Files Structure
+## Generated Files Structure
 
 The tool creates a complete Terraform configuration with the following files:
 
@@ -85,7 +85,7 @@ generated/
 └── setup_key.tf     # NetBird setup key resources
 ```
 
-## 🎯 Resource Types & Features
+## Resource Types & Features
 
 | Resource Type | Features | Terraform References |
 |---------------|----------|---------------------|
@@ -96,7 +96,7 @@ generated/
 | **Routes** | Network routing, masquerading | Peer and group references |
 | **Setup Keys** | Expiration, usage limits | Auto-group assignments |
 
-## 🔄 Post-Import Workflow
+## Post-Import Workflow
 
 1. **Navigate to generated directory**
    ```bash
@@ -121,31 +121,8 @@ generated/
    ```bash
    terraform apply
    ```
-
-## 🏗️ Architecture & Modularity
-
-The codebase follows a clean, modular architecture:
-
-```
-netbird-standalone/
-├── main.go                 # CLI interface and orchestration
-├── config.go              # Configuration management
-├── service.go             # NetBird API client
-├── terraform_generator.go # Terraform file generation
-├── generators.go          # Resource-specific generators
-├── Makefile              # Build automation
-└── README.md             # Documentation
-```
-
-### Key Design Principles
-
-1. **Single Responsibility**: Each generator handles one resource type
-2. **Dependency Injection**: Services are injected into generators
-3. **Interface-Based**: Common `ResourceGenerator` interface
-4. **Reference Resolution**: Automatic ID-to-name conversion for Terraform references
-5. **Error Handling**: Graceful failure with detailed error messages
-
-## 🔌 API Endpoints
+   
+## API Endpoints used
 
 The tool interacts with the following NetBird API endpoints:
 
@@ -156,9 +133,8 @@ The tool interacts with the following NetBird API endpoints:
 | `/api/users` | Fetch users | UsersGenerator |
 | `/api/policies` | Fetch policies | PoliciesGenerator |
 | `/api/routes` | Fetch routes | RoutesGenerator |
-<!-- | `/api/setup-keys` | Fetch setup keys | SetupKeysGenerator | -->
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Authentication Issues
 ```bash
@@ -186,11 +162,11 @@ export DEBUG=true
 |-------|----------|
 | `NB_PAT environment variable is required` | Set the NetBird Personal Access Token |
 | `failed to fetch X: API request failed with status 401` | Check token validity and permissions |
-| `failed to fetch X: API request failed with status 404` | Verify management URL is correct |
+| `failed to fetch X: API request failed with status 404` | Verify management URL is correct, probably missing the port config |
 | Empty resources in output | Check API permissions for the token |
 | Getting HTML instead of JSON | Verify the management URL points to API, not dashboard |
 
-## 🎛️ Advanced Configuration
+## Configuration
 
 ### Custom Provider Configuration
 The generated `provider.tf` includes examples for variable-based configuration:
@@ -205,7 +181,7 @@ provider "netbird" {
 ### Resource Filtering
 Currently, all accessible resources are imported. For selective import, modify the `main.go` file to comment out unwanted generators.
 
-## 🤝 Contributing
+## Contributing
 
 The modular architecture makes it easy to extend:
 
@@ -214,6 +190,6 @@ The modular architecture makes it easy to extend:
 3. **Improve Terraform output**: Update `terraform_generator.go`
 4. **Add configuration options**: Extend `config.go`
 
-## 📄 License
+## License
 
 This tool follows the same license as the main Terraformer project.
