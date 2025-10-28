@@ -1,3 +1,3 @@
-module netbird-standalone
+module netbird-terraformer
 
 go 1.21

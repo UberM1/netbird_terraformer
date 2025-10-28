@@ -1,8 +1,8 @@
-# NetBird Standalone Terraform Importer
+# NetBird terraformer Terraform Importer
 
-A modular, standalone tool to import NetBird resources into Terraform configuration files. This tool isolates the NetBird provider functionality to avoid gRPC version conflicts with the main Terraformer project and follows the existing codebase patterns for maximum modularity.
+A modular, terraformer tool to import NetBird resources into Terraform configuration files. This tool isolates the NetBird provider functionality to avoid gRPC version conflicts with the main Terraformer project.
 
-## 🚀 Features
+## Features
 
 - **Modular Architecture**: Clean separation of concerns with dedicated generators for each resource type
 - **Complete Resource Coverage**: Imports all NetBird resource types with full attribute support
@@ -11,17 +11,17 @@ A modular, standalone tool to import NetBird resources into Terraform configurat
 - **Configurable Server URLs**: Support for custom NetBird server endpoints
 - **Clean Terraform Output**: Generates properly formatted, human-readable Terraform files
 
-## 📋 Prerequisites
+## Prerequisites
 
 - Go 1.21 or later
 - NetBird API token with appropriate permissions
 - Network access to your NetBird API server
 
-## 🛠️ Installation
+## Installation
 
 ### Option 1: Build from Source
 ```bash
-cd netbird-standalone
+cd netbird-terraformer
 go build -o netbird-importer .
 ```
 
@@ -34,7 +34,7 @@ make build-all
 make build
 ```
 
-## 🔧 Configuration
+## Configuration
 
 The tool supports two configuration methods:
 

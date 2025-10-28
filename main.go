@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	"netbird-terraformer/lib"
+	"netbird-terraformer/resources"
 )
 
 func main() {
@@ -31,57 +34,67 @@ func main() {
 	fmt.Printf("Output Directory: %s\n", outputDir)
 	fmt.Printf("Starting import...\n\n")
 
+	// Create service and terraform generator
 	service := NewNetBirdService(config.ServerURL, config.APIToken, config.Debug)
-	generator := NewTerraformGenerator(outputDir, config)
+	terraformGen := lib.NewTerraformGenerator(outputDir, &lib.Config{
+		ServerURL:  config.ServerURL,
+		APIToken:   config.APIToken,
+		Debug:      config.Debug,
+		AutoImport: config.AutoImport,
+	})
 
-	groupsGen := &GroupsGenerator{Service: service, Generator: generator}
-	err := groupsGen.InitResources()
+	// Initialize resource handlers
+	groupsHandler := resources.NewGroupsHandler(service, terraformGen)
+	usersHandler := resources.NewUsersHandler(service, terraformGen)
+	policiesHandler := resources.NewPoliciesHandler(service, terraformGen)
+	routesHandler := resources.NewRoutesHandler(service, terraformGen)
+
+	// Import groups first to establish group mappings
+	err := groupsHandler.ImportAndGenerate()
 	if err != nil {
 		fmt.Printf("Warning: %v\n", err)
 	}
 
-	groupIDToResourceName := groupsGen.GetGroupIDMapping()
+	// Get group mappings for other resources
+	groupMapping := groupsHandler.GetResourceMapping()
 
-	usersGen := &UsersGenerator{Service: service, Generator: generator}
-	err = usersGen.InitResourcesWithGroupMapping(groupIDToResourceName)
-	if err != nil {
-		fmt.Printf("Warning: %v\n", err)
+	// Set group mapping for resources that need it
+	usersHandler.SetGroupMapping(groupMapping)
+	policiesHandler.SetGroupMapping(groupMapping)
+
+	// Import other resources
+	resourceHandlers := []lib.ResourceHandler{
+		usersHandler,
+		policiesHandler,
+		routesHandler,
 	}
 
-	policiesGen := &PoliciesGenerator{Service: service, Generator: generator}
-	err = policiesGen.InitResourcesWithGroupMapping(groupIDToResourceName)
-	if err != nil {
-		fmt.Printf("Warning: %v\n", err)
-	}
-
-	remainingGenerators := []ResourceGenerator{
-		&RoutesGenerator{Service: service, Generator: generator},
-	}
-
-	for _, gen := range remainingGenerators {
-		err := gen.InitResources()
+	for _, handler := range resourceHandlers {
+		err := handler.ImportAndGenerate()
 		if err != nil {
 			fmt.Printf("Warning: %v\n", err)
 		}
 	}
 
-	err = generator.GenerateFiles()
+	// Generate files and scripts
+	err = generateTerraformFiles(terraformGen, outputDir)
 	if err != nil {
 		log.Fatalf("Failed to generate Terraform files: %v", err)
 	}
 
-	err = generator.GenerateGroupMapping()
+	err = terraformGen.GenerateGroupMapping()
 	if err != nil {
 		log.Fatalf("Failed to generate group mapping: %v", err)
 	}
 
-	err = generator.GenerateImportScript()
+	err = terraformGen.GenerateImportScript()
 	if err != nil {
 		log.Fatalf("Failed to generate import script: %v", err)
 	}
 
+	// Handle imports
 	if config.AutoImport {
-		err = generator.RunTerraformImports()
+		err = runTerraformImports(terraformGen, outputDir)
 		if err != nil {
 			log.Fatalf("Failed to run terraform imports: %v", err)
 		}
@@ -108,8 +121,70 @@ func main() {
 	}
 }
 
+// generateTerraformFiles groups resources by type and generates .tf files
+func generateTerraformFiles(terraformGen *lib.TerraformGenerator, outputDir string) error {
+	fmt.Printf("\nGenerating Terraform files...\n")
+
+	// First generate provider.tf
+	err := terraformGen.GenerateProviderFile()
+	if err != nil {
+		return fmt.Errorf("failed to generate provider file: %w", err)
+	}
+
+	// Group resources by type and generate files
+	resources := terraformGen.GetResources()
+	resourcesByType := make(map[string][]lib.TerraformResource)
+	for _, resource := range resources {
+		resourcesByType[resource.Type] = append(resourcesByType[resource.Type], resource)
+	}
+
+	// Generate a file for each resource type
+	for resourceType, resources := range resourcesByType {
+		fmt.Printf("Generating %s.tf with %d resources...\n", resourceType, len(resources))
+		err := terraformGen.WriteResourceFile(resourceType, resources)
+		if err != nil {
+			return fmt.Errorf("failed to generate %s resources: %w", resourceType, err)
+		}
+	}
+
+	fmt.Printf("Terraform files generated successfully\n")
+	return nil
+}
+
+// runTerraformImports executes terraform init and import commands
+func runTerraformImports(terraformGen *lib.TerraformGenerator, outputDir string) error {
+	importCommands := terraformGen.GetImportCommands()
+	if len(importCommands) == 0 {
+		fmt.Printf("No terraform imports to run\n")
+		return nil
+	}
+
+	fmt.Printf("\nRunning terraform imports...\n")
+
+	fmt.Printf("Running terraform init...\n")
+	err := lib.TerraformInit(outputDir)
+	if err != nil {
+		return fmt.Errorf("terraform init failed: %w", err)
+	}
+
+	successCount := 0
+	for _, cmd := range importCommands {
+		fmt.Printf("Importing %s...\n", cmd.ResourceAddress)
+		err := lib.TerraformImport(outputDir, cmd.ResourceAddress, cmd.ResourceID)
+		if err != nil {
+			fmt.Printf("  Warning: terraform import failed for %s: %v\n", cmd.ResourceAddress, err)
+		} else {
+			fmt.Printf("  Successfully imported %s\n", cmd.ResourceAddress)
+			successCount++
+		}
+	}
+
+	fmt.Printf("\nTerraform import completed: %d/%d successful\n", successCount, len(importCommands))
+	return nil
+}
+
 func showHelp() {
-	fmt.Println("NetBird Standalone Terraform Importer")
+	fmt.Println("NetBird terraformer Terraform Importer")
 	fmt.Println("=====================================")
 	fmt.Println("")
 	fmt.Println("Usage: ./netbird-importer [output-directory]")
@@ -174,7 +249,10 @@ func debugAuth() {
 	fmt.Println("\n=== Testing API Connection ===")
 	service := NewNetBirdService(managementURL, pat, true)
 
-	var groups []Group
+	var groups []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
 	err := service.Get("/api/groups", &groups)
 	if err != nil {
 		fmt.Printf("ERROR: API test failed: %v\n", err)
