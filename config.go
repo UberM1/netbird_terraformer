@@ -15,7 +15,7 @@ type Config struct {
 func getConfig() *Config {
 	serverURL := os.Getenv("NB_MANAGEMENT_URL")
 	if serverURL == "" {
-		serverURL = "https://netbird.monitorbit.xyz:33073"
+		serverURL = "https://netbird.api.com:33073"
 	}
 
 	if len(serverURL) > 0 && serverURL[len(serverURL)-1] == '/' {

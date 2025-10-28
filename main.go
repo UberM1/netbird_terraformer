@@ -203,7 +203,7 @@ func showHelp() {
 	fmt.Println("")
 	fmt.Println("  # Import to custom directory with custom server")
 	fmt.Println("  export NB_PAT=\"your-personal-access-token\"")
-	fmt.Println("  export NB_MANAGEMENT_URL=\"https://netbird.monitorbit.xyz:33073\"")
+	fmt.Println("  export NB_MANAGEMENT_URL=\"https://netbird.api.com:33073\"")
 	fmt.Println("  ./netbird-importer my-terraform-config")
 	fmt.Println("")
 	fmt.Println("Resource types imported:")

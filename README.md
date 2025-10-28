@@ -41,7 +41,7 @@ The tool supports two configuration methods:
 ### Environment Variables (Recommended)
 ```bash
 export NB_PAT="your-personal-access-token"
-export NB_MANAGEMENT_URL="https://netbird.monitorbit.xyz:33073"  # Optional
+export NB_MANAGEMENT_URL="https://netbird.api.com:33073"  # Optional
 export DEBUG="true"  # Optional, for debugging API requests
 ```
 
@@ -66,7 +66,7 @@ export DEBUG="true"  # Optional, for debugging API requests
 ### Example with Custom Server
 ```bash
 export NB_PAT="pat_your_token_here"
-export NB_MANAGEMENT_URL="https://netbird.monitorbit.xyz:33073"
+export NB_MANAGEMENT_URL="https://netbird.api.com:33073"
 ./netbird-importer terraform-config
 ```
 
@@ -149,7 +149,7 @@ curl -H "Authorization: Token $NB_PAT" \
 ### Network Configuration
 ```bash
 # Test connectivity to custom server
-curl -k https://netbird.monitorbit.xyz:33073/api/groups
+curl -k https://netbird.api.com:33073/api/groups
 
 # Enable debug mode for detailed request information
 export DEBUG=true
@@ -173,7 +173,7 @@ The generated `provider.tf` includes examples for variable-based configuration:
 
 ```hcl
 provider "netbird" {
-  management_url = "https://netbird.monitorbit.xyz:33073"
+  management_url = "https://netbird.api.com:33073"
   token          = var.netbird_token
 }
 ```
