@@ -30,11 +30,28 @@ go build -o netbird-terraformer .
 
 # Or via make
 make build
-
-# Or with Nix (flake)
-nix build
-nix run . -- --help
 ```
+
+### With Nix (no checkout needed)
+
+The flake is the intended way to consume this from another repository: pin a tag
+and you get a reproducible tool without vendoring the source.
+
+```bash
+nix run github:UberM1/netbird_terraformer/v0.1.0 -- --help
+nix run github:UberM1/netbird_terraformer/v0.1.0#reconcile-state -- --dry-run
+nix run github:UberM1/netbird_terraformer/v0.1.0#prune-imports -- imports.tf state.txt
+```
+
+| Flake output | What it is |
+|---|---|
+| `.` / `.#netbird-terraformer` | the importer |
+| `.#prune-imports` | `prune_imports.sh` |
+| `.#reconcile-state` | `reconcile_state.sh` |
+| `.#helpers` | both scripts, plus `share/netbird-terraformer/backend-env.sh` |
+
+The helpers shell out to `terraform`, which stays yours to provide: pinning a
+version in the flake would override whatever the consuming project uses.
 
 A dev shell with Go, gopls and OpenTofu is available via `nix develop`.
 
@@ -110,7 +127,7 @@ With `AUTO_IMPORT=false`, bind them through the generated import blocks:
 ```bash
 cd generated
 terraform state list > state.txt
-bash /path/to/prune_imports.sh imports.tf state.txt   # drop what state already has
+nix run github:UberM1/netbird_terraformer#prune-imports -- imports.tf state.txt
 terraform plan                                        # review
 terraform apply                                       # binds, then delete imports.tf
 ```
@@ -124,6 +141,8 @@ state.
 ```bash
 terraform state list > state.txt
 bash prune_imports.sh imports.tf state.txt
+# or, without a checkout:
+nix run github:UberM1/netbird_terraformer#prune-imports -- imports.tf state.txt
 ```
 
 **`reconcile_state.sh`** — closes the gap between state and configuration
@@ -136,6 +155,8 @@ interrupted run.
 ```bash
 bash reconcile_state.sh --dry-run
 bash reconcile_state.sh
+# or, without a checkout:
+nix run github:UberM1/netbird_terraformer#reconcile-state -- --dry-run
 ```
 
 **`backend-env.sh`** — optional, for a GitLab-managed remote state
