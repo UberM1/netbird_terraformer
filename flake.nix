@@ -14,7 +14,7 @@
 
         netbird-terraformer = pkgs.buildGoModule {
           pname = "netbird-terraformer";
-          version = "0.1.0";
+          version = "0.1.1";
           src = ./.;
 
           # The tool uses only the Go standard library, so there is nothing to vendor.
@@ -31,7 +31,7 @@
         # provide: pinning one here would override the version the project uses.
         helpers = pkgs.stdenv.mkDerivation {
           pname = "netbird-terraformer-helpers";
-          version = "0.1.0";
+          version = "0.1.1";
           src = ./.;
           dontBuild = true;
           installPhase = ''

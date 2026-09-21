@@ -38,9 +38,9 @@ The flake is the intended way to consume this from another repository: pin a tag
 and you get a reproducible tool without vendoring the source.
 
 ```bash
-nix run github:UberM1/netbird_terraformer/v0.1.0 -- --help
-nix run github:UberM1/netbird_terraformer/v0.1.0#reconcile-state -- --dry-run
-nix run github:UberM1/netbird_terraformer/v0.1.0#prune-imports -- imports.tf state.txt
+nix run github:UberM1/netbird_terraformer/v0.1.1 -- --help
+nix run github:UberM1/netbird_terraformer/v0.1.1#reconcile-state -- --dry-run
+nix run github:UberM1/netbird_terraformer/v0.1.1#prune-imports -- imports.tf state.txt
 ```
 
 | Flake output | What it is |
@@ -215,5 +215,4 @@ go test ./...
 
 ## License
 
-No license has been chosen yet. Until one is added, the usual default
-applies: all rights reserved.
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
