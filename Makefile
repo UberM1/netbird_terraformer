@@ -1,4 +1,4 @@
-BINARY_NAME=netbird-importer
+BINARY_NAME=netbird-terraformer
 BUILD_DIR=build
 
 .PHONY: build clean test help

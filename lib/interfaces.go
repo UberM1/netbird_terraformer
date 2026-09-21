@@ -29,9 +29,33 @@ type ImportCommand struct {
 	ResourceID      string
 }
 
+// ObjectList marks a list of objects that must be written as a list attribute
+// (foo = [{ ... }]) rather than as repeated blocks (foo { ... }). The NetBird
+// provider uses both shapes: policy "rule" is a block list, while nameserver
+// group "nameservers" is an attributes list.
+type ObjectList []map[string]interface{}
+
+// ObjectValue marks a single object written as an attribute (foo = { ... })
+// rather than as a block (foo { ... }). Policy source_resource and
+// destination_resource use this shape.
+type ObjectValue map[string]interface{}
+
+// RawValue is written verbatim, without quoting. Needed for required fields
+// whose empty value must still be emitted, such as "[]".
+type RawValue string
+
+// ForceString is a quoted string that is written even when empty.
+//
+// Plain strings are dropped when empty, which is correct for attributes the API
+// omits entirely. It is wrong for attributes the API returns as "": the config
+// then has no value, Terraform reads that as null, and every plan reports a
+// no-op update of "" -> null. Use this for those.
+type ForceString string
+
 // TerraformWriter handles writing Terraform files and managing imports
 type TerraformWriter interface {
 	AddResource(resourceType, name string, attributes map[string]interface{})
+	AddResourceNoImport(resourceType, name string, attributes map[string]interface{})
 	AddDataSource(dataType, name string, attributes map[string]interface{})
 	WriteResource(file *os.File, resource TerraformResource) error
 	QueueImport(resourceType, name string, resourceID string)

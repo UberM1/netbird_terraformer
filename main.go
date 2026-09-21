@@ -48,6 +48,16 @@ func main() {
 	usersHandler := resources.NewUsersHandler(service, terraformGen)
 	policiesHandler := resources.NewPoliciesHandler(service, terraformGen)
 	routesHandler := resources.NewRoutesHandler(service, terraformGen)
+	nameserversHandler := resources.NewNameserversHandler(service, terraformGen)
+	networksHandler := resources.NewNetworksHandler(service, terraformGen)
+	reverseProxiesHandler := resources.NewReverseProxiesHandler(service, terraformGen)
+	postureChecksHandler := resources.NewPostureChecksHandler(service, terraformGen)
+	peerResolver := resources.NewPeerResolver(service, terraformGen)
+
+	// Peers are referenced by routes and network routers, so resolve them first.
+	if err := peerResolver.Load(); err != nil {
+		fmt.Printf("Warning: %v\n", err)
+	}
 
 	// Import groups first to establish group mappings
 	err := groupsHandler.ImportAndGenerate()
@@ -61,12 +71,28 @@ func main() {
 	// Set group mapping for resources that need it
 	usersHandler.SetGroupMapping(groupMapping)
 	policiesHandler.SetGroupMapping(groupMapping)
+	nameserversHandler.SetGroupMapping(groupMapping)
+	networksHandler.SetGroupMapping(groupMapping)
+	reverseProxiesHandler.SetGroupMapping(groupMapping)
+	routesHandler.SetPeerResolver(peerResolver)
+	networksHandler.SetPeerResolver(peerResolver)
+
+	referenceResolver := resources.NewReferenceResolver(peerResolver, networksHandler)
+	policiesHandler.SetReferenceResolver(referenceResolver)
+	policiesHandler.SetPostureCheckMapping(postureChecksHandler.GetResourceMapping())
+	reverseProxiesHandler.SetReferenceResolver(referenceResolver)
 
 	// Import other resources
+	// Networks run before policies and reverse proxies: both reference network
+	// resources, and the mapping only exists once those are generated.
 	resourceHandlers := []lib.ResourceHandler{
 		usersHandler,
+		networksHandler,
+		postureChecksHandler,
 		policiesHandler,
 		routesHandler,
+		nameserversHandler,
+		reverseProxiesHandler,
 	}
 
 	for _, handler := range resourceHandlers {
@@ -82,6 +108,13 @@ func main() {
 		log.Fatalf("Failed to generate Terraform files: %v", err)
 	}
 
+	// Must be written whenever a reverse proxy domain is generated: the domain's
+	// target_cluster references the lookup map this file defines.
+	err = terraformGen.GenerateClustersFile()
+	if err != nil {
+		log.Fatalf("Failed to generate clusters file: %v", err)
+	}
+
 	err = terraformGen.GenerateGroupMapping()
 	if err != nil {
 		log.Fatalf("Failed to generate group mapping: %v", err)
@@ -90,6 +123,11 @@ func main() {
 	err = terraformGen.GenerateImportScript()
 	if err != nil {
 		log.Fatalf("Failed to generate import script: %v", err)
+	}
+
+	err = terraformGen.GenerateImportBlocks()
+	if err != nil {
+		log.Fatalf("Failed to generate import blocks: %v", err)
 	}
 
 	// Handle imports
@@ -106,8 +144,10 @@ func main() {
 	fmt.Printf("Generated files in: %s\n", outputDir)
 	fmt.Printf("\nFiles generated:\n")
 	fmt.Printf("  - Terraform configuration files (*.tf)\n")
+	fmt.Printf("  - imports.tf (terraform import blocks)\n")
+	fmt.Printf("  - clusters.tf (reverse proxy cluster lookup)\n")
 	fmt.Printf("  - group_mappings.json (for ID reference)\n")
-	fmt.Printf("  - import.sh (terraform import commands)\n")
+	fmt.Printf("  - import.sh (legacy, superseded by imports.tf)\n")
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  1. cd %s\n", outputDir)
 	if config.AutoImport {
@@ -115,9 +155,10 @@ func main() {
 		fmt.Printf("  3. Review and modify the configuration as needed\n")
 		fmt.Printf("\nNote: All resources have been automatically imported into Terraform state!\n")
 	} else {
-		fmt.Printf("  2. Run ./import.sh (or manually run terraform import commands)\n")
-		fmt.Printf("  3. terraform plan\n")
-		fmt.Printf("  4. Review and modify the configuration as needed\n")
+		fmt.Printf("  2. Prune imports.tf against the state: terraform state list > state.txt\n")
+		fmt.Printf("     then: bash prune_imports.sh imports.tf state.txt\n")
+		fmt.Printf("  3. terraform plan   (review what would be imported)\n")
+		fmt.Printf("  4. terraform apply  (binds the resources, then delete imports.tf)\n")
 	}
 }
 
@@ -129,6 +170,12 @@ func generateTerraformFiles(terraformGen *lib.TerraformGenerator, outputDir stri
 	err := terraformGen.GenerateProviderFile()
 	if err != nil {
 		return fmt.Errorf("failed to generate provider file: %w", err)
+	}
+
+	// provider.tf references these, so the output is not valid without them
+	err = terraformGen.GenerateVariablesFile()
+	if err != nil {
+		return fmt.Errorf("failed to generate variables file: %w", err)
 	}
 
 	// Group resources by type and generate files
@@ -187,7 +234,7 @@ func showHelp() {
 	fmt.Println("NetBird terraformer Terraform Importer")
 	fmt.Println("=====================================")
 	fmt.Println("")
-	fmt.Println("Usage: ./netbird-importer [output-directory]")
+	fmt.Println("Usage: ./netbird-terraformer [output-directory]")
 	fmt.Println("")
 	fmt.Println("Environment variables:")
 	fmt.Println("  NB_PAT                - Your NetBird Personal Access Token (required)")
@@ -199,12 +246,12 @@ func showHelp() {
 	fmt.Println("Examples:")
 	fmt.Println("  # Import to default 'generated' directory")
 	fmt.Println("  export NB_PAT=\"your-personal-access-token\"")
-	fmt.Println("  ./netbird-importer")
+	fmt.Println("  ./netbird-terraformer")
 	fmt.Println("")
 	fmt.Println("  # Import to custom directory with custom server")
 	fmt.Println("  export NB_PAT=\"your-personal-access-token\"")
-	fmt.Println("  export NB_MANAGEMENT_URL=\"https://netbird.api.com:33073\"")
-	fmt.Println("  ./netbird-importer my-terraform-config")
+	fmt.Println("  export NB_MANAGEMENT_URL=\"https://netbird.example.com:33073\"")
+	fmt.Println("  ./netbird-terraformer my-terraform-config")
 	fmt.Println("")
 	fmt.Println("Resource types imported:")
 	fmt.Println("  - Groups")
@@ -216,7 +263,7 @@ func showHelp() {
 	fmt.Println("Note: Peers are managed by the NetBird client and available as data sources only.")
 	fmt.Println("")
 	fmt.Println("Debug commands:")
-	fmt.Println("  ./netbird-importer --debug-auth   # Test authentication")
+	fmt.Println("  ./netbird-terraformer --debug-auth   # Test authentication")
 }
 
 func debugAuth() {

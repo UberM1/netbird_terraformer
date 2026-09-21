@@ -1,3 +1,5 @@
 generated/
+build/
 netbird-terraformer
-
+result
+.terraformrc

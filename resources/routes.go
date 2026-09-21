@@ -8,18 +8,20 @@ import (
 
 // Route represents a NetBird route
 type Route struct {
-	ID          string   `json:"id"`
-	Description string   `json:"description"`
-	NetworkID   string   `json:"network_id"`
-	Network     string   `json:"network"`
-	NetworkType string   `json:"network_type"`
-	Peer        string   `json:"peer"`
-	PeerGroups  []string `json:"peer_groups"`
-	Metric      int      `json:"metric"`
-	Masquerade  bool     `json:"masquerade"`
-	Enabled     bool     `json:"enabled"`
-	Groups      []string `json:"groups"`
-	KeepRoute   bool     `json:"keep_route"`
+	ID            string   `json:"id"`
+	Description   string   `json:"description"`
+	NetworkID     string   `json:"network_id"`
+	Network       string   `json:"network"`
+	NetworkType   string   `json:"network_type"`
+	Peer          string   `json:"peer"`
+	PeerGroups    []string `json:"peer_groups"`
+	Metric        int      `json:"metric"`
+	Masquerade    bool     `json:"masquerade"`
+	Enabled       bool     `json:"enabled"`
+	Groups        []string `json:"groups"`
+	KeepRoute     bool     `json:"keep_route"`
+	Domains       []string `json:"domains"`
+	SkipAutoApply bool     `json:"skip_auto_apply"`
 }
 
 // RouteGroup represents a NetBird group (minimal struct for group fetching)
@@ -32,6 +34,12 @@ type RouteGroup struct {
 type RoutesHandler struct {
 	service         lib.NetBirdAPI
 	terraformWriter lib.TerraformWriter
+	peerResolver    *PeerResolver
+}
+
+// SetPeerResolver sets the resolver used to turn peer IDs into references
+func (h *RoutesHandler) SetPeerResolver(resolver *PeerResolver) {
+	h.peerResolver = resolver
 }
 
 // NewHandler creates a new routes handler
@@ -84,6 +92,14 @@ func (h *RoutesHandler) GetResourceType() string {
 	return "route"
 }
 
+// resolvePeer turns a peer ID into a data source reference when possible
+func (h *RoutesHandler) resolvePeer(peerID string) any {
+	if h.peerResolver == nil {
+		return peerID
+	}
+	return h.peerResolver.Reference(peerID)
+}
+
 // generateRouteResource generates a Terraform resource for a route
 func (h *RoutesHandler) generateRouteResource(route Route, groupIDToResourceName map[string]string) {
 	resourceName := lib.SanitizeResourceName(route.NetworkID)
@@ -115,13 +131,21 @@ func (h *RoutesHandler) generateRouteResource(route Route, groupIDToResourceName
 		"description": route.Description,
 		"network_id":  route.NetworkID,
 		"network":     route.Network,
-		"peer":        route.Peer,
+		"peer":        h.resolvePeer(route.Peer),
 		"peer_groups": peerGroupRefs,
 		"metric":      route.Metric,
 		"masquerade":  route.Masquerade,
 		"enabled":     route.Enabled,
 		"groups":      groupRefs,
 		"keep_route":  route.KeepRoute,
+	}
+
+	// A route targets either a network prefix or a domain list.
+	if len(route.Domains) > 0 {
+		attributes["domains"] = route.Domains
+	}
+	if route.SkipAutoApply {
+		attributes["skip_auto_apply"] = route.SkipAutoApply
 	}
 
 	h.terraformWriter.AddResource("route", resourceName, attributes)

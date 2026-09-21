@@ -2,9 +2,14 @@ package resources
 
 import (
 	"fmt"
+	"strings"
 
 	"netbird-terraformer/lib"
 )
+
+// temporaryAccessPolicyPrefix marks the policies NetBird auto-creates for
+// browser based temporary access sessions.
+const temporaryAccessPolicyPrefix = "Temporary access policy for peer"
 
 // Policy represents a NetBird policy
 type Policy struct {
@@ -56,9 +61,22 @@ type Resource struct {
 
 // Handler implements ResourceHandler for policies
 type PoliciesHandler struct {
-	service         lib.NetBirdAPI
-	terraformWriter lib.TerraformWriter
-	groupMapping    map[string]string
+	service             lib.NetBirdAPI
+	terraformWriter     lib.TerraformWriter
+	groupMapping        map[string]string
+	references          *ReferenceResolver
+	postureCheckMapping map[string]string
+}
+
+// SetPostureCheckMapping sets the posture check ID to resource name mapping
+func (h *PoliciesHandler) SetPostureCheckMapping(mapping map[string]string) {
+	h.postureCheckMapping = mapping
+}
+
+// SetReferenceResolver sets the resolver for rules that target a peer or a
+// network resource instead of a group
+func (h *PoliciesHandler) SetReferenceResolver(resolver *ReferenceResolver) {
+	h.references = resolver
 }
 
 // NewHandler creates a new policies handler
@@ -85,11 +103,35 @@ func (h *PoliciesHandler) ImportAndGenerate() error {
 		return fmt.Errorf("failed to fetch policies: %w", err)
 	}
 
+	// NetBird creates these on the fly for browser based temporary access. They
+	// are ephemeral and would be permanent drift, so they are not managed here.
+	managed := make([]Policy, 0, len(policies))
+	skipped := 0
 	for _, policy := range policies {
-		h.generatePolicyResource(policy)
+		if strings.HasPrefix(policy.Name, temporaryAccessPolicyPrefix) {
+			skipped++
+			continue
+		}
+		managed = append(managed, policy)
+	}
+	policies = managed
+
+	// Two policies may share a name, so resolve collisions before generating.
+	idToName := make(map[string]string, len(policies))
+	for _, policy := range policies {
+		name := lib.SanitizeResourceName(policy.Name)
+		if name == "" {
+			name = fmt.Sprintf("policy_%s", policy.ID)
+		}
+		idToName[policy.ID] = name
+	}
+	resourceNames := lib.UniqueResourceNames(idToName)
+
+	for _, policy := range policies {
+		h.generatePolicyResource(policy, resourceNames[policy.ID])
 	}
 
-	fmt.Printf("Imported %d policies\n", len(policies))
+	fmt.Printf("Imported %d policies (%d temporary access policies skipped)\n", len(policies), skipped)
 	return nil
 }
 
@@ -103,13 +145,20 @@ func (h *PoliciesHandler) GetResourceType() string {
 	return "policy"
 }
 
-// generatePolicyResource generates a Terraform resource for a policy
-func (h *PoliciesHandler) generatePolicyResource(policy Policy) {
-	resourceName := lib.SanitizeResourceName(policy.Name)
-	if resourceName == "" {
-		resourceName = fmt.Sprintf("policy_%s", policy.ID)
+// resourceRef builds a rule resource reference, resolving the ID when possible
+func (h *PoliciesHandler) resourceRef(resource Resource) lib.ObjectValue {
+	id := any(resource.ID)
+	if h.references != nil {
+		id = h.references.Reference(resource.ID, resource.Type)
 	}
+	return lib.ObjectValue{
+		"id":   id,
+		"type": resource.Type,
+	}
+}
 
+// generatePolicyResource generates a Terraform resource for a policy
+func (h *PoliciesHandler) generatePolicyResource(policy Policy, resourceName string) {
 	attributes := map[string]any{
 		"id":          policy.ID,
 		"name":        policy.Name,
@@ -118,7 +167,15 @@ func (h *PoliciesHandler) generatePolicyResource(policy Policy) {
 	}
 
 	if len(policy.SourcePostureChecks) > 0 {
-		attributes["source_posture_checks"] = policy.SourcePostureChecks
+		refs := make([]string, 0, len(policy.SourcePostureChecks))
+		for _, id := range policy.SourcePostureChecks {
+			if name, exists := h.postureCheckMapping[id]; exists {
+				refs = append(refs, lib.CreateTerraformReference("posture_check", name))
+			} else {
+				refs = append(refs, id)
+			}
+		}
+		attributes["source_posture_checks"] = refs
 	}
 
 	if len(policy.Rules) > 0 {
@@ -182,18 +239,13 @@ func (h *PoliciesHandler) generatePolicyResource(policy Policy) {
 				ruleMap["destinations"] = destinations
 			}
 
+			// These are object attributes in the provider schema, not blocks.
 			if rule.SourceResource != nil {
-				ruleMap["source_resource"] = map[string]any{
-					"id":   rule.SourceResource.ID,
-					"type": rule.SourceResource.Type,
-				}
+				ruleMap["source_resource"] = h.resourceRef(*rule.SourceResource)
 			}
 
 			if rule.DestinationResource != nil {
-				ruleMap["destination_resource"] = map[string]any{
-					"id":   rule.DestinationResource.ID,
-					"type": rule.DestinationResource.Type,
-				}
+				ruleMap["destination_resource"] = h.resourceRef(*rule.DestinationResource)
 			}
 
 			rules = append(rules, ruleMap)
